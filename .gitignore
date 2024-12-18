@@ -8,3 +8,4 @@ __pycache__
 *_goals.json
 exports/
 *.log
+*.zip

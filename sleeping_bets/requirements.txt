@@ -1,3 +1,8 @@
 solara
 pandas
-ScraperFC
+ScraperFC==3.1.2
+statsmodels
+numpy
+scikit-learn
+fastapi
+uvicorn

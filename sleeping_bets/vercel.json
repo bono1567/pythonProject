@@ -2,8 +2,17 @@
     "version": 2,
     "builds": [
       {
-        "src": "pip install -r requirements.txt && python -m solara run sleeping_bets.ipynb --port 8000",
+        "src": "main.py",
         "use": "@vercel/python"
       }
-    ]
+    ],
+    "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "main.py"
+    }
+    ],
+    "env": {
+    "SOLARA_APP": "sleeping_bets.py"
   }
+}
