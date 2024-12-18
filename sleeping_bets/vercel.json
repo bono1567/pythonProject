@@ -2,13 +2,14 @@
     "version": 2,
     "builds": [
       {
+        "src": "solara run sleeping_bets.ipynb --port 8000",
         "use": "@vercel/python"
       }
     ],
     "routes": [
       {
         "src": "/(.*)",
-        "dest": "sleeping_bets.ipynb"
+        "dest": "solara run sleeping_bets.ipynb --port 8000"
       }
     ]
   }
