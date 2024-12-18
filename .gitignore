@@ -3,6 +3,8 @@
 cache/
 __pycache__
 *.csv
-*.json
+*_assists.json
+*_fouls.json
+*_goals.json
 exports/
 *.log
