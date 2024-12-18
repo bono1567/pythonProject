@@ -1,14 +1,19 @@
-def parse(A, i, j, counter):
-    if i == 6 and j == 6:
-        counter += 1
-        return counter
-    if i + 1 < 7:
-        counter = parse(A, i + 1, j, counter)
-    if j + 1 < 7:
-        counter = parse(A, i, j + 1, counter)
-    return counter
+from typing import Union
+
+from fastapi import FastAPI
+
+app = FastAPI()
 
 
-A = [[0 for _ in range(6)] for _ in range(7)]
-c = parse(A, 0, 0, 0)
-print(c)
+
+@app.get("/items/{item_id}")
+def read_item(item_id: int):
+    for i in range(300000):
+        print("{} - {}".format(item_id, i))
+    return "DONE"
+
+@app.get("/bad/{item_id}")
+def read_item(item_id: int):
+    for i in range(300000):
+        print("BOMBO {} - {}".format(item_id, i))
+    return "DONE"
