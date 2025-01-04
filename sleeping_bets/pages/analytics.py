@@ -1,11 +1,14 @@
 import json
-from typing import Dict, List
+import solara
+from datetime import datetime
+from typing import Dict, List, Union
 import pandas as pd
 from statsmodels.stats.outliers_influence import variance_inflation_factor
 import statsmodels.api as sm
 import numpy as np
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics.pairwise import cosine_similarity
+import matplotlib.pyplot as plt
 np.seterr(all='ignore')
 
 
@@ -183,6 +186,95 @@ class ClubAnalytics:
     
     def get_players_of_club(self, club_name:str) -> pd.DataFrame:
         return self.__all_data[self.__all_data['team'] == club_name]
+
+class PlayerAnalytics:
+    def __init__(self, players_to_compare, sfc, season):
+        self.__all_players = players_to_compare
+        self.__all_leagues = ['EPL', 'La Liga', 'Bundesliga', 'Serie A', 'Ligue 1']
+        self.__league_players_list = []
+        self.__ss = sfc
+        for league in self.__all_leagues:
+            self.__league_players_list.append((league, self.__ss.scrape_player_league_stats(season, league)['player'].to_list()))
+        self.__season = season
+    
+    def __get_player_league(self, player:str):
+        for league, pl_list in self.__league_players_list:
+            if player in pl_list:
+                return league
+        return False
+    
+    def get_historic_similarity_stats(self) -> List[pd.DataFrame]:
+        all_data = {}
+        for player in self.__all_players:
+            league = self.__get_player_league(player)
+            if league:
+                all_data[player] = self.get_historic_player_stats(player, league)
+        return all_data
+
+    
+    def __get_all_stats_available(self, player_data) -> pd.DataFrame:
+        """
+        Get all the available stats for the player for that match
+        """
+        column_names_all = [x.columns for x in player_data]
+        common_items = list(set(column_names_all[0]).intersection(*column_names_all[1:]))
+        final_items = [x[common_items] for x in player_data]
+        return pd.concat(final_items, axis=0).sort_values(by='matchTime', ascending=True).reset_index(drop=True)
+
+
+    def get_historic_player_stats(self, player_id: Union[str, int], league) -> pd.DataFrame:
+        all_player_series = []
+        solara.display(f"Analysis for player: {player_id} league: {league}")
+        all_matches = [self.__ss.get_match_dicts(self.__season, self.__all_leagues[i]) for i in range(len(self.__all_leagues))]
+        league_matches = {}
+        all_matches = self.__ss.get_match_dicts(self.__season, league)
+        all_match_id = [all_matches[i]['id'] for i in range(len(all_matches))]
+        league_matches[league] = all_match_id
+
+        for match in league_matches[league]:
+            match_stats = self.__ss.scrape_player_match_stats(match) # returns a pandas dataframe
+            match_dict = self.__ss.get_match_dict(match) # retuns a dictionary of values
+            match_stats['homeTeam'] = str(match_dict['homeTeam']['name'])
+            match_stats['awayTeam'] = str(match_dict['awayTeam']['name'])
+            match_stats['matchTime'] = datetime.fromtimestamp(match_dict['startTimestamp'])
+            try:
+                match_stats['homeScore'] = float(match_dict['homeScore']['display'])
+                match_stats['awayScore'] = float(match_dict['awayScore']['display'])
+            except KeyError:
+                solara.display(f"Match Not Played Yet or player didn't play {match}")
+                continue
+            if isinstance(player_id, str):
+                player_match_stats = match_stats[match_stats['name'] == player_id]
+            else:
+                player_match_stats = match_stats[match_stats['id'] == player_id]
+            
+            if not player_match_stats.empty:
+                all_player_series.append(player_match_stats)
+        return self.__get_all_stats_available(all_player_series)
+    
+    def plot_comarison(self, field, similar_players_data: dict, lead_player):
+        player_data = self.get_historic_player_stats(lead_player, self.__get_player_league(lead_player))
+        plt.figure(figsize=(12, 6))
+        for player in similar_players_data.keys():
+            try:
+                plt.plot(similar_players_data[player]['matchTime'],
+                    similar_players_data[player][field],
+                    label=player)
+                for x, y in zip(similar_players_data[player]['matchTime'], similar_players_data[player][field]):
+                    plt.text(x, y, f'{y}', fontsize=8, ha='right')
+            except KeyError:
+                solara.display("The player data not available for {} state: {}".format(player, field))
+        plt.plot(player_data['matchTime'], player_data[field], label=lead_player)
+        for x, y in zip(player_data['matchTime'], player_data[field]):
+            plt.text(x, y, f'{y}', fontsize=8, ha='right')
+        plt.xlabel('Date')
+        plt.ylabel(field)
+        plt.title('Comparison of {} for player and similar players'.format(field))
+        plt.legend()
+        plt.grid(True, which='both', linestyle='--', linewidth=0.5)
+        plt.show()
+    
+
 
     
 
