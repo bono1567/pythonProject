@@ -30,19 +30,21 @@ def Page():
     solara.Title("Sleeping Bets")
     solara.Markdown("#😴 Sleeping Bets 😴")
     with solara.Card("Comparison Page"):
-        comp_selected_players = solara.reactive("Kevin De Bruyne, Diogo Jota")
+        comp_selected_players = solara.reactive("Kevin De Bruyne,Diogo Jota")
         comp_season = solara.reactive("24/25")
         solara.InputText("Enter comma sperate player names to compare", 
                          value=comp_selected_players)
         solara.Select(label="Season", values=seasons, value=comp_season)
         solara.Markdown(comp_selected_players.value)
+        comp_feature = solara.reactive("goals")
+        solara.Select(label="Select Feature", values=all_columns, value=comp_feature)
     
         def player_analytics():
-            player_analysis = PlayerAnalytics(comp_selected_players.value.split(","), sfc=ss, season=comp_season.value)
+            print("Running player analytics")
+            player_analysis = PlayerAnalytics([x.strip() for x in comp_selected_players.value.split(",")], sfc=ss, season=comp_season.value)
             comp_historic_sim_data = solara.reactive(player_analysis.get_historic_similarity_stats())
-            comp_feature = solara.reactive("goals")
-            solara.Select(label="Select Feature", values=all_columns, value=comp_feature)
-            player_analysis.plot_comarison(comp_feature.value, comp_historic_sim_data.value[1:], comp_historic_sim_data.value[0])
+            plt = player_analysis.plot_comparison(comp_feature.value, comp_historic_sim_data.value)
+            plt.show()
 
         solara.Button("Run Analysis", on_click=player_analytics)
             

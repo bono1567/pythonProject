@@ -225,6 +225,7 @@ class PlayerAnalytics:
     def get_historic_player_stats(self, player_id: Union[str, int], league) -> pd.DataFrame:
         all_player_series = []
         solara.display(f"Analysis for player: {player_id} league: {league}")
+        print(f"Analysis for player: {player_id} league: {league}")
         all_matches = [self.__ss.get_match_dicts(self.__season, self.__all_leagues[i]) for i in range(len(self.__all_leagues))]
         league_matches = {}
         all_matches = self.__ss.get_match_dicts(self.__season, league)
@@ -242,6 +243,7 @@ class PlayerAnalytics:
                 match_stats['awayScore'] = float(match_dict['awayScore']['display'])
             except KeyError:
                 solara.display(f"Match Not Played Yet or player didn't play {match}")
+                print(f"Match Not Played Yet or player didn't play {match}")
                 continue
             if isinstance(player_id, str):
                 player_match_stats = match_stats[match_stats['name'] == player_id]
@@ -252,8 +254,7 @@ class PlayerAnalytics:
                 all_player_series.append(player_match_stats)
         return self.__get_all_stats_available(all_player_series)
     
-    def plot_comarison(self, field, similar_players_data: dict, lead_player):
-        player_data = self.get_historic_player_stats(lead_player, self.__get_player_league(lead_player))
+    def plot_comparison(self, field, similar_players_data: dict, lead_player=None):
         plt.figure(figsize=(12, 6))
         for player in similar_players_data.keys():
             try:
@@ -264,15 +265,17 @@ class PlayerAnalytics:
                     plt.text(x, y, f'{y}', fontsize=8, ha='right')
             except KeyError:
                 solara.display("The player data not available for {} state: {}".format(player, field))
-        plt.plot(player_data['matchTime'], player_data[field], label=lead_player)
-        for x, y in zip(player_data['matchTime'], player_data[field]):
-            plt.text(x, y, f'{y}', fontsize=8, ha='right')
+        if lead_player:
+            player_data = self.get_historic_player_stats(lead_player, self.__get_player_league(lead_player))
+            plt.plot(player_data['matchTime'], player_data[field], label=lead_player)
+            for x, y in zip(player_data['matchTime'], player_data[field]):
+                plt.text(x, y, f'{y}', fontsize=8, ha='right')
         plt.xlabel('Date')
         plt.ylabel(field)
         plt.title('Comparison of {} for player and similar players'.format(field))
         plt.legend()
         plt.grid(True, which='both', linestyle='--', linewidth=0.5)
-        plt.show()
+        return plt
     
 
 

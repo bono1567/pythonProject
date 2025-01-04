@@ -1,8 +1,7 @@
-import os
 import pandas as pd
 import numpy as np
 import ScraperFC as sfc
-from analytics import Analytics, ClubAnalytics, PlayerAnalytics
+from analytics import Analytics, ClubAnalytics
 
 ss = sfc.Sofascore()
 np.seterr(all='ignore')
@@ -96,12 +95,15 @@ solara_club = solara.reactive("Arsenal")
 solara_clubs = solara.reactive([])
 
 def predict(metric, features):
-    if metric == "goals":
-        return analysis_goals.predict(features).to_list()[0]
-    if metric == "assists":
-        return analysis_assists.predict(features).to_list()[0]
-    if metric == "fouls":
-        return analysis_fouls.predict(features).to_list()[0]
+    try:
+        if metric == "goals":
+            return analysis_goals.predict(features).to_list()[0]
+        if metric == "assists":
+            return analysis_assists.predict(features).to_list()[0]
+        if metric == "fouls":
+            return analysis_fouls.predict(features).to_list()[0]
+    except IndexError:
+        return 0
 
 @solara.component
 def PlayerAnalysis():
@@ -184,6 +186,10 @@ def PlayerAnalysis():
                 solara.display(similar_fouls[solara_player.value])
         except FileNotFoundError:
             solara.Markdown("**Error:** Could not find similar players for fouls.")  
+        all_in_string = similar_fouls[solara_player.value] + similar_assists[solara_player.value] + similar_goals[solara_player.value]
+        all_in_string = [x['player'] for x in all_in_string]
+        solara.Markdown("String to Use in Comparator Page")
+        solara.Markdown(",".join(all_in_string))
 
 
 @solara.component
