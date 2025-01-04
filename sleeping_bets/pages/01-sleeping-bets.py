@@ -183,28 +183,7 @@ def PlayerAnalysis():
                 solara.Markdown("Similarity in terms of assists related features.")
                 solara.display(similar_fouls[solara_player.value])
         except FileNotFoundError:
-            solara.Markdown("**Error:** Could not find similar players for fouls.")
-        solara.Markdown("Compare Historic Values of Similar Players. (Take time to process) ....")
-        selected_players = solara.reactive([])
-        solara.SelectMultiple("Select Players",
-                              similar_goals[solara_player.value] + similar_assists[solara_player.value] + similar_fouls[solara_player.value],
-                              selected_players)
-        solara.Markdown(",".join(selected_players.value))
-        solara.Button("COMPARE DATA", on_click=lambda: CompareData(similar_assists, similar_fouls, similar_goals))
-
-@solara.component
-def CompareData(similar_assists, similar_fouls, similar_goals):
-        selected_players = solara.reactive([])
-        comparison_feature = solara.reactive("")
-        solara.SelectMultiple("Select Players",
-                            similar_goals[solara_player.value] + similar_assists[solara_player.value] + similar_fouls[solara_player.value],
-                            selected_players)
-        solara.Markdown(",".join(selected_players.value))
-        player_analysis = PlayerAnalytics(selected_players.value, sfc=ss, season=solara_season.value)
-        historic_sim_data = solara.reactive(player_analysis.get_historic_similarity_stats())
-        solara_player_data = solara.reactive(player_analysis.get_historic_player_stats(solara_player.value, solara_league.value))
-        solara.Select(label="Select Feature", values=solara_player_data.value.columns, value=comparison_feature)
-        player_analysis.plot_comarison(comparison_feature.value, historic_sim_data.value, solara_player_data.value)        
+            solara.Markdown("**Error:** Could not find similar players for fouls.")  
 
 
 @solara.component
