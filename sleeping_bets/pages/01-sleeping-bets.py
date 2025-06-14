@@ -33,26 +33,27 @@ for league in all_leagues[:5]:
 original_player_data = pd.concat(player_data)[all_columns].fillna(0).reset_index(drop=True)
 player_data = pd.concat(player_data[2:5])[all_columns].fillna(0)
 
+final_features = ['goals', 'assists', 'tackles', 'yellowCards', 'redCards', 'totalShots', 'shotsOnTarget', 'wasFouled', 'fouls', 'team', 'player']
 analysis_goals = Analytics(player_data)
-final_features = analysis_goals.run_regression_and_feature_selection('goals', 10)
+# final_features = analysis_goals.run_regression_and_feature_selection('goals', 10)
 final_prediction_data = original_player_data[final_features]
 club_analysis_goals = ClubAnalytics(original_player_data[final_features])
-analysis_goals.save_most_similar_players_list('similar_player_goals.json', 5, final_prediction_data)
+# analysis_goals.save_most_similar_players_list('similar_player_goals.json', 5, final_prediction_data)
 
 analysis_assists = Analytics(player_data)
-final_features = analysis_assists.run_regression_and_feature_selection('assists', 10)
+# final_features = analysis_assists.run_regression_and_feature_selection('assists', 10)
 final_prediction_data = original_player_data[final_features]
 club_analysis_assists = ClubAnalytics(original_player_data[final_features])
-analysis_assists.save_most_similar_players_list('similar_player_assists.json', 5, final_prediction_data)
+# analysis_assists.save_most_similar_players_list('similar_player_assists.json', 5, final_prediction_data)
 
 analysis_fouls = Analytics(player_data)
-final_features = analysis_fouls.run_regression_and_feature_selection('fouls', 10)
+# final_features = analysis_fouls.run_regression_and_feature_selection('fouls', 10)
 final_prediction_data = original_player_data[final_features]
 club_analysis_fouls = ClubAnalytics(original_player_data[final_features])
-analysis_fouls.save_most_similar_players_list('similar_player_fouls.json', 5, final_prediction_data)
+# analysis_fouls.save_most_similar_players_list('similar_player_fouls.json', 5, final_prediction_data)
 
-print(analysis_assists.predict(original_player_data[original_player_data['player'] == 'Cole Palmer']).to_list()[0])
-print(original_player_data[original_player_data['player'] == 'Cole Palmer']['assists'].to_list()[0])
+# print(analysis_assists.predict(original_player_data[original_player_data['player'] == 'Cole Palmer']).to_list()[0])
+# print(original_player_data[original_player_data['player'] == 'Cole Palmer']['assists'].to_list()[0])
 
 import solara
 import json
@@ -196,11 +197,17 @@ def PlayerAnalysis():
 def ClubData():
     with solara.Card("Club Data"):
         solara.Markdown("Goals")
-        solara.DataFrame(club_analysis_goals.get_players_of_club(solara_club.value).sort_values('goals', ascending=False))
+        solara.DataFrame(club_analysis_goals.get_players_of_club(solara_club.value).sort_values('goals', ascending=False)[['goals', 'player']])
         solara.Markdown("Assists")
-        solara.DataFrame(club_analysis_assists.get_players_of_club(solara_club.value).sort_values('assists', ascending=False))
+        solara.DataFrame(club_analysis_assists.get_players_of_club(solara_club.value).sort_values('assists', ascending=False)[['assists', 'player']])
         solara.Markdown("Fouls")
-        solara.DataFrame(club_analysis_fouls.get_players_of_club(solara_club.value).sort_values('fouls', ascending=False))
+        solara.DataFrame(club_analysis_fouls.get_players_of_club(solara_club.value).sort_values('fouls', ascending=False)[['fouls', 'player']])
+        solara.Markdown("Was Fouled")
+        solara.DataFrame(club_analysis_fouls.get_players_of_club(solara_club.value).sort_values('wasFouled', ascending=False)[['wasFouled', 'player']])
+        solara.Markdown("Shots on Target")
+        solara.DataFrame(club_analysis_fouls.get_players_of_club(solara_club.value).sort_values('shotsOnTarget', ascending=False)[['shotsOnTarget', 'player']])
+        solara.Markdown("Total Shots")
+        solara.DataFrame(club_analysis_fouls.get_players_of_club(solara_club.value).sort_values('totalShots', ascending=False)[['totalShots', 'player']])
 
 
 @solara.component

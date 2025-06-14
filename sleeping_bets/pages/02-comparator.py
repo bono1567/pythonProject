@@ -44,7 +44,7 @@ def Page():
             player_analysis = PlayerAnalytics([x.strip() for x in comp_selected_players.value.split(",")], sfc=ss, season=comp_season.value)
             comp_historic_sim_data = solara.reactive(player_analysis.get_historic_similarity_stats())
             plt = player_analysis.plot_comparison(comp_feature.value, comp_historic_sim_data.value)
-            plt.show()
+            solara.display(plt.show())
 
         solara.Button("Run Analysis", on_click=player_analytics)
             
