@@ -9,3 +9,4 @@ __pycache__
 exports/
 *.log
 *.zip
+venv*

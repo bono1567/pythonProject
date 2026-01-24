@@ -1,0 +1,6 @@
+C++ does not have GIL to block threads, so it can run multiple threads in parallel.
+Python has GIL, so it can only run one thread at a time (We can still use threads to handle I/O-bound tasks).
+Since  is a compiled languege we can static check many conditions prior to runtime
+
+In Python, you can get rid of GIL bottle neck by using multiprocessing module but mutiprocessing comes with a cost when it comes to context switching.
+Python3.13+ gets rid of GIL bottleneck but the problem is since its a different implementation, we will have to build existing dependencies again in order to use it.

@@ -1,0 +1,99 @@
+import asyncio
+from collections import Counter
+from http import HTTPStatus
+from pathlib import Path
+
+import httpx
+import tqdm  # type: ignore
+
+from common import main, DownloadStatus, save_flag
+
+# low concurrency default to avoid errors from remote site,
+# such as 503 - Service Temporarily Unavailable
+DEFAULT_CONCUR_REQ = 5
+MAX_CONCUR_REQ = 1000
+
+async def get_flag(client: httpx.AsyncClient,  # <1>
+                   base_url: str,
+                   cc: str) -> bytes:
+    url = f'{base_url}/{cc}/{cc}.gif'.lower()
+    resp = await client.get(url, timeout=3.1, follow_redirects=True)   # <2>
+    resp.raise_for_status()
+    return resp.content
+
+async def download_one(client: httpx.AsyncClient,
+                       cc: str,
+                       base_url: str,
+                       semaphore: asyncio.Semaphore,
+                       verbose: bool,
+                       threaded: bool = True) -> DownloadStatus:
+    try:
+        async with semaphore:
+            image = await get_flag(client, base_url, cc)
+    except httpx.HTTPStatusError as exc:
+        res = exc.response
+        if res.status_code == HTTPStatus.NOT_FOUND:
+            status = DownloadStatus.NOT_FOUND
+            msg = f'not found: {res.url}'
+        else:
+            raise
+    else:
+        if threaded:
+            await asyncio.to_thread(save_flag, image, f'{cc}.gif') # CPU bound approach
+        else:
+            loop = asyncio.get_event_loop() # `loop = asyncio.get_event_loop()`, retrieves the current event loop, which is the core object responsible for managing and executing asynchronous tasks in an asyncio-based program.
+            loop.run_in_executor(None, save_flag, image, f'{cc}.gif') # schedules the function to run in a separate thread or process, rather than blocking the main event loop. 
+        status = DownloadStatus.OK
+        msg = 'OK'
+    if verbose and msg:
+        print(cc, msg)
+    return status
+
+async def supervisor(cc_list: list[str],
+                     base_url: str,
+                     verbose: bool,
+                     concur_req: int,
+                     threaded: bool = True) -> Counter[DownloadStatus]:
+    counter: Counter[DownloadStatus] = Counter()
+    semaphore = asyncio.Semaphore(concur_req)
+    async with httpx.AsyncClient() as client:
+        to_do = [download_one(client, cc, base_url, semaphore, verbose, True)
+                 for cc in sorted(cc_list)]
+        to_do_iter = asyncio.as_completed(to_do)
+        if not verbose:
+            to_do_iter = tqdm.tqdm(to_do_iter, total=len(cc_list)) 
+        error: httpx.HTTPError | None = None
+        for coro in to_do_iter:
+            try:
+                await coro
+            except httpx.HTTPStatusError as exc:
+                error_msg = 'HTTP error {resp.status_code} - {resp.reason_phrase}'
+                error_msg = error_msg.format(resp=exc.response)
+                error = exc 
+            except httpx.RequestError as exc:
+                error_msg = f'{exc} {type(exc)}'.strip()
+                error = exc  # <10>
+            except KeyboardInterrupt:
+                break
+            else:
+                error = None
+            if error:
+                status = DownloadStatus.ERROR  # <11>
+                if verbose:
+                    url = str(error.request.url)  # <12>
+                    cc = Path(url).stem.upper()   # <13>
+                    print(f'{cc} error: {error_msg}')
+
+            counter[status] += 1
+
+def download_many(cc_list: list[str],
+                  base_url: str,
+                  verbose: bool,
+                  concur_req: int) -> Counter[DownloadStatus]:
+    coro = supervisor(cc_list, base_url, verbose, concur_req, False) # The False flag gets rid of the to_thread await
+    counts = asyncio.run(coro)  # <14>
+
+    return counts
+
+if __name__ == '__main__':
+    main(download_many, DEFAULT_CONCUR_REQ, MAX_CONCUR_REQ)
