@@ -1,0 +1,213 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: redis-scaler
+  labels:
+    app: redis-scaler
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: redis-scaler
+  labels:
+    app: redis-scaler
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["statefulsets"]
+    verbs: ["get", "list", "watch", "patch"]
+  - apiGroups: ["apps"]
+    resources: ["statefulsets/scale"]
+    verbs: ["get", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: redis-scaler
+  labels:
+    app: redis-scaler
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: redis-scaler
+subjects:
+  - kind: ServiceAccount
+    name: redis-scaler
+---
+# Single source of truth for cluster size. Change it via scale.sh (or
+# kubectl patch); the scaler reconciles the StatefulSet AND the Redis
+# cluster slot layout to match. Do not `kubectl scale` the StatefulSet
+# directly — the scaler will reconcile it back to this value.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redis-cluster-desired
+  labels:
+    app: redis-scaler
+data:
+  replicas: "3"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redis-scaler-script
+  labels:
+    app: redis-scaler
+data:
+  scaler.sh: |
+    #!/usr/bin/env bash
+    # Reconcile loop: make the StatefulSet size and the Redis Cluster
+    # slot layout match the desired replica count in the
+    # redis-cluster-desired ConfigMap.
+    #
+    # Scale up:   grow StatefulSet -> join new pods -> rebalance slots.
+    # Scale down: drain slots off highest-ordinal node -> remove it from
+    #             the cluster -> shrink StatefulSet -> delete its PVC
+    #             (so a future scale-up starts that ordinal fresh).
+    set -u
+    STS=redis
+    MIN=3
+    INTERVAL=15
+
+    log() { echo "[scaler] $(date -Is) $*"; }
+    rexec() { kubectl exec "$STS-0" -c redis -- "$@"; }
+    seed_ip() { kubectl get pod "$STS-0" -o jsonpath='{.status.podIP}'; }
+
+    cluster_initialized() {
+      local known
+      known=$(rexec redis-cli cluster info 2>/dev/null \
+        | tr -d '\r' | awk -F: '/^cluster_known_nodes/{print $2}')
+      [ -n "$known" ] && [ "$known" -gt 1 ]
+    }
+
+    join_and_rebalance() {
+      local current=$1 seed changed=0
+      seed=$(seed_ip)
+      for i in $(seq 0 $((current - 1))); do
+        local ip
+        ip=$(kubectl get pod "$STS-$i" -o jsonpath='{.status.podIP}' 2>/dev/null)
+        [ -n "$ip" ] || continue
+        if ! rexec redis-cli cluster nodes | grep -q "$ip:6379@"; then
+          log "joining $STS-$i ($ip) to the cluster"
+          rexec redis-cli --cluster add-node "$ip:6379" "$seed:6379" || return 1
+          changed=1
+        fi
+      done
+      if [ "$changed" = 1 ]; then
+        sleep 5  # let gossip propagate before rebalancing
+        log "rebalancing slots onto new nodes"
+        rexec redis-cli --cluster rebalance "$seed:6379" --cluster-use-empty-masters
+      fi
+    }
+
+    drain_and_remove() {
+      local ordinal=$1 seed ip node_id
+      seed=$(seed_ip)
+      ip=$(kubectl get pod "$STS-$ordinal" -o jsonpath='{.status.podIP}' 2>/dev/null)
+      if [ -n "$ip" ]; then
+        node_id=$(rexec redis-cli cluster nodes | tr -d '\r' \
+          | awk -v addr="$ip:6379@" 'index($2, addr) == 1 {print $1}')
+        if [ -n "$node_id" ]; then
+          log "draining slots off $STS-$ordinal ($node_id)"
+          rexec redis-cli --cluster rebalance "$seed:6379" \
+            --cluster-weight "$node_id=0" || return 1
+          log "removing $STS-$ordinal from the cluster"
+          rexec redis-cli --cluster del-node "$seed:6379" "$node_id" || return 1
+        fi
+      fi
+      kubectl scale statefulset "$STS" --replicas="$ordinal"
+      kubectl wait --for=delete "pod/$STS-$ordinal" --timeout=120s || true
+      kubectl delete pvc "data-$STS-$ordinal" --ignore-not-found
+    }
+
+    log "starting; watching ConfigMap redis-cluster-desired"
+    while true; do
+      sleep "$INTERVAL"
+
+      desired=$(kubectl get configmap redis-cluster-desired \
+        -o jsonpath='{.data.replicas}' 2>/dev/null)
+      current=$(kubectl get statefulset "$STS" \
+        -o jsonpath='{.spec.replicas}' 2>/dev/null)
+      [ -n "$desired" ] && [ -n "$current" ] || continue
+
+      if [ "$desired" -lt "$MIN" ]; then
+        log "desired=$desired is below minimum $MIN; ignoring"
+        continue
+      fi
+
+      # Never act before deploy.sh has created the cluster.
+      cluster_initialized || continue
+
+      if [ "$desired" -gt "$current" ]; then
+        log "scale up: $current -> $desired"
+        kubectl scale statefulset "$STS" --replicas="$desired"
+        kubectl rollout status "statefulset/$STS" --timeout=300s || continue
+        join_and_rebalance "$desired" && log "scale up complete"
+      elif [ "$desired" -lt "$current" ]; then
+        log "scale down: $current -> $desired"
+        ok=1
+        for i in $(seq $((current - 1)) -1 "$desired"); do
+          drain_and_remove "$i" || { ok=0; break; }
+        done
+        [ "$ok" = 1 ] && log "scale down complete"
+      else
+        # Heal a half-finished scale-up (e.g. scaler restarted mid-way):
+        # pods that exist but never joined the cluster.
+        masters=$(rexec redis-cli cluster nodes 2>/dev/null \
+          | tr -d '\r' | grep -c master)
+        if [ -n "$masters" ] && [ "$masters" -lt "$current" ]; then
+          log "reconcile: $masters cluster nodes < $current pods; joining stragglers"
+          join_and_rebalance "$current"
+        fi
+      fi
+    done
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis-scaler
+  labels:
+    app: redis-scaler
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate  # never two scalers reconciling at once
+  selector:
+    matchLabels:
+      app: redis-scaler
+  template:
+    metadata:
+      labels:
+        app: redis-scaler
+    spec:
+      serviceAccountName: redis-scaler
+      containers:
+        - name: scaler
+          image: bitnami/kubectl:1.30
+          command: ["/bin/bash", "/scripts/scaler.sh"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          volumeMounts:
+            - name: script
+              mountPath: /scripts
+      volumes:
+        - name: script
+          configMap:
+            name: redis-scaler-script
